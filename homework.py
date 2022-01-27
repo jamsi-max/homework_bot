@@ -1,4 +1,5 @@
 import logging
+from logging import StreamHandler, Formatter
 import os
 import sys
 import time
@@ -25,26 +26,18 @@ HOMEWORK_STATUSES: dict = {
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 
+_log_format: str = (
+    '%(asctime)s - %(levelname)s - %(funcName)s - %(name)s  - %(message)s')
 logger = logging.getLogger(__name__)
-_log_format = logging.Formatter(
-    '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-# _log_format: str = (
-#     '%(asctime)s - %(levelname)s - %(funcName)s - %(name)s  - %(message)s')
-stream_logger = logging.StreamHandler(stream=sys.stdout)
-stream_logger.setLevel(level=logging.INFO)
-stream_logger.setFormatter(_log_format)
-logger.addHandler(stream_logger)
-# stream_logger = logging.StreamHandler(stream=sys.stdout)
-# stream_logger.setLevel(logging.INFO)
-# stream_logger.setFormatter(logging.Formatter(_log_format))
-
-# logger = logging.getLogger(__name__)
-# logger.addHandler(stream_logger)
+logger.setLevel(logging.INFO)
+handler = StreamHandler(stream=sys.stdout)
+handler.setFormatter(Formatter(fmt=_log_format))
+logger.addHandler(handler)
 
 
 def send_message(bot: telegram.Bot, message: str) -> None:
     """Отправка сообщений в телеграмм."""
-    logging.info('Отправка сообщения пользователю')
+    
     bot.send_message(
         chat_id=TELEGRAM_CHAT_ID,
         text=message
@@ -52,16 +45,14 @@ def send_message(bot: telegram.Bot, message: str) -> None:
 
 
 def get_api_answer(current_timestamp: int) -> dict:
-    """Запрос к единственному эндпоинту Яндекс.Домашка."""
+    """Запрос к серверу Яндекс.Домашка и проверка статуса ответа."""
     timestamp = current_timestamp or int(time.time())
     params = {'from_date': timestamp}
     response = requests.get(
         ENDPOINT,
         headers=HEADERS,
         params=params)
-    logging.info('Запрос к серверу Яндекс.Домашка')
     if response.status_code != HTTPStatus.OK:
-        logging.error(f'Ошибка! Ответ сервер - {response.status_code}')
         raise Exception(f'Ошибка! Ответ сервер - {response.status_code}')
     return response.json()
 
@@ -69,23 +60,18 @@ def get_api_answer(current_timestamp: int) -> dict:
 def check_response(response: dict) -> list:
     """Функция проверяет ответ API на корректность."""
     if not response:
-        logging.error(
-            f'Ответ от API содержит пустой словарь response {response}')
         raise Exception(
             f'Ответ от API содержит пустой словарь response {response}')
 
     if not isinstance(response, dict):
-        logging.error('Ошибка типа ответа от сервера')
         raise TypeError('Ошибка типа ответа от сервера')
 
     homework = response.get('homeworks')
 
     if homework is None:
-        logging.error('Отсутствует ключ "homeworks" в словаре response')
         raise KeyError('Отсутствует ключ "homeworks" в словаре response')
 
     if not isinstance(homework, list):
-        logging.error('Данные ключа "homeworks" не являются списком')
         raise Exception('Данные ключа "homeworks" не являются списком')
 
     return homework
@@ -99,21 +85,16 @@ def parse_status(homework: list) -> str:
 
         homework_status = homework.get('status')
         if homework_status is None:
-            logging.error('Отсутствует ключ "status" в словаре homework')
             raise KeyError('Отсутствует ключ "status" в словаре homework')
 
         homework_name = homework.get('homework_name')
         if homework_name is None:
-            logging.error(
-                'Отсутствует ключ "homework_name" в словаре homework')
             raise KeyError(
                 'Отсутствует ключ "homework_name" в словаре homework')
 
         verdict = HOMEWORK_STATUSES.get(homework_status)
         if verdict is None:
-            logging.error('Не известный статус домашней работы')
             raise KeyError('Не известный статус домашней работы')
-
         return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
     return 'В настоящее время у Вас нет работ на проверке'
@@ -122,16 +103,16 @@ def parse_status(homework: list) -> str:
 def check_tokens() -> bool:
     """Функция проверяет доступность переменных окружения."""
     if PRACTICUM_TOKEN is None:
-        logging.critical(
-            f'Отсутствует переменная окружения: {PRACTICUM_TOKEN}')
+        logger.critical(
+            'Отсутствует переменная окружения: PRACTICUM_TOKEN')
         return False
     if TELEGRAM_TOKEN is None:
-        logging.critical(
-            f'Отсутствует переменная окружения: {TELEGRAM_TOKEN}')
+        logger.critical(
+            'Отсутствует переменная окружения: TELEGRAM_TOKEN')
         return False
     if TELEGRAM_CHAT_ID is None:
-        logging.critical(
-            f'Отсутствует переменная окружения: {TELEGRAM_CHAT_ID}')
+        logger.critical(
+            'Отсутствует переменная окружения: TELEGRAM_CHAT_ID')
         return False
     return True
 
@@ -147,19 +128,35 @@ def main() -> None:
         while True:
             try:
                 response = get_api_answer(current_timestamp)
+                logger.info(
+                    f'Запрос к серверу - {ENDPOINT}'
+                )
                 homework = check_response(response)
+                logger.info(
+                    'Поверка ответа получение списка домашних работ'
+                )
                 answer = parse_status(homework)
+                logger.info(
+                    'Получение статуса домашней работы и подготовкуа ответа'
+                )
                 current_timestamp = int(time.time())
                 time.sleep(RETRY_TIME)
             except Exception as error:
                 message = f'Сбой в работе программы: {error}'
+                logger.error(f'Сбой в работе программы: - {error}')
                 if current_error != message:
                     send_message(bot, message)
+                    logger.info(
+                        f'Отправка ошибки пользователю - {TELEGRAM_CHAT_ID}'
+                    )
                     current_error = message
                 time.sleep(RETRY_TIME)
             else:
                 if answer != current_answer:
                     send_message(bot, answer)
+                    logger.info(
+                        f'Отправка сообщения пользователю - {TELEGRAM_CHAT_ID}'
+                    )
                     current_answer = answer
 
     raise Exception('Не удалось получить переменные окружения')
