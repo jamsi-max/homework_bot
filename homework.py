@@ -16,7 +16,7 @@ PRACTICUM_TOKEN: str = os.getenv('PRACTICUM_TOKEN')
 TELEGRAM_TOKEN: str = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID: str = os.getenv('TELEGRAM_CHAT_ID')
 
-RETRY_TIME: int = 600
+RETRY_TIME: int = 6
 ENDPOINT: str = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS: dict = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
 
@@ -96,6 +96,7 @@ def parse_status(homework: list) -> str:
             raise KeyError('Не известный статус домашней работы')
         return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
+    logger.debug('В ответе отсутствуют новые статуы')
     return 'В настоящее время у Вас нет работ на проверке'
 
 
@@ -138,7 +139,7 @@ def main() -> None:
                 logger.info(
                     'Получение статуса домашней работы и подготовкуа ответа'
                 )
-                current_timestamp = int(time.time())
+                current_timestamp = response.get('current_date')
                 time.sleep(RETRY_TIME)
             except Exception as error:
                 message = f'Сбой в работе программы: {error}'
@@ -158,7 +159,8 @@ def main() -> None:
                     )
                     current_answer = answer
 
-    raise Exception('Не удалось получить переменные окружения')
+    raise Exception(
+        'Не удалось получить переменные окружения программа остановлена')
 
 
 if __name__ == '__main__':
