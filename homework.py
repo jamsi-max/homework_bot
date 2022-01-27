@@ -1,14 +1,19 @@
 import logging
-from logging import StreamHandler, Formatter
 import os
 import sys
 import time
 from http import HTTPStatus
+from logging import Formatter, StreamHandler
 
 import requests
 import telegram
 from dotenv import load_dotenv
 
+from exceptions import (
+    EnvironmentVariablesException,
+    SendingUserMessageException,
+    ResponseSerializationException,
+    EmptyResponseException)
 
 load_dotenv()
 
@@ -37,67 +42,82 @@ logger.addHandler(handler)
 
 def send_message(bot: telegram.Bot, message: str) -> None:
     """Отправка сообщений в телеграмм."""
-    bot.send_message(
-        chat_id=TELEGRAM_CHAT_ID,
-        text=message
-    )
+    try:
+        bot.send_message(
+            chat_id=TELEGRAM_CHAT_ID,
+            text=message
+        )
+    except SendingUserMessageException:
+        logger.error(
+            f'Ошибка отправки сообщения пользователю - {TELEGRAM_CHAT_ID}')
 
 
 def get_api_answer(current_timestamp: int) -> dict:
     """Запрос к серверу Яндекс.Домашка и проверка статуса ответа."""
     timestamp = current_timestamp or int(time.time())
     params = {'from_date': timestamp}
-    response = requests.get(
-        ENDPOINT,
-        headers=HEADERS,
-        params=params)
+
+    try:
+        response = requests.get(
+            ENDPOINT,
+            headers=HEADERS,
+            params=params)
+    except SendingUserMessageException:
+        logger.error(f'Ошибка получения ответа от сервера - {ENDPOINT}')
+
     if response.status_code != HTTPStatus.OK:
         raise Exception(f'Ошибка! Ответ сервер - {response.status_code}')
-    return response.json()
+
+    try:
+        return response.json()
+    except ResponseSerializationException:
+        logger.error(
+            f'Ошибка сериализации ответа от сервера - {type(response)}')
 
 
 def check_response(response: dict) -> list:
     """Функция проверяет ответ API на корректность."""
     if not response:
-        raise Exception(
-            f'Ответ от API содержит пустой словарь response {response}')
+        raise EmptyResponseException(
+            f'Ответ от сервера не содержит данных - {response}')
 
     if not isinstance(response, dict):
-        raise TypeError('Ошибка типа ответа от сервера')
+        raise TypeError('Не поддерживаемый тип данных ответа сервера')
 
     homework = response.get('homeworks')
 
     if homework is None:
-        raise KeyError('Отсутствует ключ "homeworks" в словаре response')
+        raise KeyError('Отсутствует ключ "homeworks" в ответе сервера')
 
     if not isinstance(homework, list):
-        raise Exception('Данные ключа "homeworks" не являются списком')
+        raise TypeError('Не поддерживаемый тип данных ключа "homeworks"')
 
     return homework
 
 
 def parse_status(homework: list) -> str:
     """Функция извлекает получает статус домашней работы."""
-    if homework:
-        if isinstance(homework, list):
-            homework = homework[0]
+    if not homework:
+        logger.debug('В ответе отсутствуют новые статуы')
+        return False
 
-        homework_status = homework.get('status')
-        if homework_status is None:
-            raise KeyError('Отсутствует ключ "status" в словаре homework')
+    if isinstance(homework, list):
+        homework = homework[0]
 
-        homework_name = homework.get('homework_name')
-        if homework_name is None:
-            raise KeyError(
-                'Отсутствует ключ "homework_name" в словаре homework')
+    homework_status = homework.get('status')
+    if homework_status is None:
+        raise KeyError('Отсутствует ключ "status" в словаре "homework"')
 
-        verdict = HOMEWORK_STATUSES.get(homework_status)
-        if verdict is None:
-            raise KeyError('Не известный статус домашней работы')
-        return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+    homework_name = homework.get('homework_name')
+    if homework_name is None:
+        raise KeyError(
+            'Отсутствует ключ "homework_name" в словаре "homework"')
 
-    logger.debug('В ответе отсутствуют новые статуы')
-    return 'В настоящее время у Вас нет работ на проверке'
+    verdict = HOMEWORK_STATUSES.get(homework_status)
+    if verdict is None:
+        raise KeyError('Не известный статус домашней работы')
+
+    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def check_tokens() -> bool:
@@ -119,48 +139,58 @@ def check_tokens() -> bool:
 
 def main() -> None:
     """Основная логика работы бота."""
-    if check_tokens():
-        current_answer: str = ''
-        current_error: str = ''
-        bot = telegram.Bot(token=TELEGRAM_TOKEN)
-        current_timestamp: int = int(time.time())
+    if not check_tokens():
+        raise EnvironmentVariablesException(
+            'Не удалось получить переменные окружения программа остановлена')
 
-        while True:
-            try:
-                response = get_api_answer(current_timestamp)
-                logger.info(
-                    f'Запрос к серверу - {ENDPOINT}'
-                )
-                homework = check_response(response)
-                logger.info(
-                    'Поверка ответа получение списка домашних работ'
-                )
-                answer = parse_status(homework)
-                logger.info(
-                    'Получение статуса домашней работы и подготовкуа ответа'
-                )
-                current_timestamp = response.get('current_date')
-                time.sleep(RETRY_TIME)
-            except Exception as error:
-                message = f'Сбой в работе программы: {error}'
-                logger.error(f'Сбой в работе программы: - {error}')
-                if current_error != message:
-                    send_message(bot, message)
-                    logger.info(
-                        f'Отправка ошибки пользователю - {TELEGRAM_CHAT_ID}'
-                    )
-                    current_error = message
-                time.sleep(RETRY_TIME)
-            else:
-                if answer != current_answer:
-                    send_message(bot, answer)
-                    logger.info(
-                        f'Отправка сообщения пользователю - {TELEGRAM_CHAT_ID}'
-                    )
-                    current_answer = answer
+    current_answer: str = ''
+    current_error: str = ''
 
-    raise Exception(
-        'Не удалось получить переменные окружения программа остановлена')
+    bot = telegram.Bot(token=TELEGRAM_TOKEN)
+    current_timestamp: int = int(time.time())
+
+    while True:
+        try:
+            response = get_api_answer(current_timestamp)
+            logger.info(
+                f'Запрос к серверу - {ENDPOINT}'
+            )
+
+            homework = check_response(response)
+            logger.info(
+                'Поверка ответа получение списка домашних работ'
+            )
+
+            answer = parse_status(homework)
+            logger.info(
+                'Получение статуса домашней работы и подготовкуа ответа'
+            )
+
+            current_timestamp = response.get('current_date')
+
+            if not answer:
+                continue
+
+        except Exception as error:
+            message = f'Сбой в работе программы: {error}'
+            logger.error(f'Сбой в работе программы: - {error}')
+
+            if current_error != message:
+                send_message(bot, message)
+                logger.info(
+                    f'Отправка ошибки пользователю - {error}'
+                )
+                current_error = message
+
+            time.sleep(RETRY_TIME)
+        else:
+            if answer != current_answer:
+                send_message(bot, answer)
+                logger.info(
+                    f'Отправка сообщения пользователю - {TELEGRAM_CHAT_ID}'
+                )
+                current_answer = answer
+            time.sleep(RETRY_TIME)
 
 
 if __name__ == '__main__':
