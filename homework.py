@@ -167,7 +167,7 @@ def main() -> None:
             )
 
             current_timestamp = response.get('current_date')
-
+            time.sleep(RETRY_TIME)
             if not answer:
                 continue
 
@@ -190,7 +190,7 @@ def main() -> None:
                     f'Отправка сообщения пользователю - {TELEGRAM_CHAT_ID}'
                 )
                 current_answer = answer
-            time.sleep(RETRY_TIME)
+            
 
 
 if __name__ == '__main__':
