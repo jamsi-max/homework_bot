@@ -64,6 +64,8 @@ def get_api_answer(current_timestamp: int) -> dict:
             params=params)
     except SendingUserMessageException:
         logger.error(f'Ошибка получения ответа от сервера - {ENDPOINT}')
+        raise SendingUserMessageException(
+            f'Ошибка получения ответа от сервера - {ENDPOINT}')
 
     if response.status_code != HTTPStatus.OK:
         raise Exception(f'Ошибка! Ответ сервер - {response.status_code}')
@@ -72,6 +74,8 @@ def get_api_answer(current_timestamp: int) -> dict:
         return response.json()
     except ResponseSerializationException:
         logger.error(
+            f'Ошибка сериализации ответа от сервера - {type(response)}')
+        raise ResponseSerializationException(
             f'Ошибка сериализации ответа от сервера - {type(response)}')
 
 
