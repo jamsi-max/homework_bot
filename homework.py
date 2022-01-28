@@ -147,7 +147,6 @@ def main() -> None:
         raise EnvironmentVariablesException(
             'Не удалось получить переменные окружения программа остановлена')
 
-    current_answer: str = ''
     current_error: str = ''
 
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
@@ -189,12 +188,10 @@ def main() -> None:
 
             time.sleep(RETRY_TIME)
         else:
-            if answer != current_answer:
-                send_message(bot, answer)
-                logger.info(
-                    f'Отправка сообщения пользователю - {TELEGRAM_CHAT_ID}'
-                )
-                current_answer = answer
+            send_message(bot, answer)
+            logger.info(
+                f'Отправка сообщения пользователю - {TELEGRAM_CHAT_ID}'
+            )
             time.sleep(RETRY_TIME)
 
 
