@@ -25,7 +25,7 @@ RETRY_TIME: int = 600
 ENDPOINT: str = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS: dict = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
 
-HOMEWORK_STATUSES: dict = {
+VERDICT_STATUSES: dict = {
     'approved': 'Работа проверена: ревьюеру всё понравилось. Ура!',
     'reviewing': 'Работа взята на проверку ревьюером.',
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
@@ -113,7 +113,7 @@ def parse_status(homework: list) -> str:
         raise KeyError(
             'Отсутствует ключ "homework_name" в словаре "homework"')
 
-    verdict = HOMEWORK_STATUSES.get(homework_status)
+    verdict = VERDICT_STATUSES.get(homework_status)
     if verdict is None:
         raise KeyError('Не известный статус домашней работы')
 
